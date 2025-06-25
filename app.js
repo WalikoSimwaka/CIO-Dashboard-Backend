@@ -16,16 +16,24 @@ const app = express();
 let server;
 let isShuttingDown = false;
 
-// Middleware
+const allowedOrigins = [
+	"https://cio-dashboard-production-b590.up.railway.app",
+	"https://cio-dashboard-backend-production.up.railway.app",
+];
+
+if (process.env.NODE_ENV === "development") {
+	allowedOrigins.push("http://localhost:3000");
+}
+
 app.use(
 	cors({
-		origin: [
-			"https://cio-dashboard-production-b590.up.railway.app",
-			"https://cio-dashboard-backend-production.up.railway.app",
-			...(process.env.NODE_ENV === "development"
-				? ["http://localhost:3000"]
-				: []),
-		],
+		origin: function (origin, callback) {
+			if (!origin || allowedOrigins.includes(origin)) {
+				callback(null, true);
+			} else {
+				callback(new Error("Not allowed by CORS"));
+			}
+		},
 		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 		allowedHeaders: ["Content-Type", "Authorization"],
 		credentials: true,
@@ -70,7 +78,7 @@ app.use("/api/high-priority-projects", highPriorityProjectsRouter);
 app.use("/api/war-room", warRoomRouter);
 console.log("Routes initialized");
 
-// Fast health check route (Railway-friendly)
+// Health check
 app.get("/health", (req, res) => {
 	if (isShuttingDown) {
 		return res.status(503).json({
@@ -79,7 +87,6 @@ app.get("/health", (req, res) => {
 			timestamp: new Date().toISOString(),
 		});
 	}
-
 	res.status(200).json({
 		status: "healthy",
 		timestamp: new Date().toISOString(),
@@ -112,7 +119,6 @@ app.use((err, req, res, next) => {
 	});
 });
 
-// Graceful shutdown handler
 const gracefulShutdown = async (signal) => {
 	if (isShuttingDown) return;
 	isShuttingDown = true;
@@ -147,7 +153,6 @@ const gracefulShutdown = async (signal) => {
 	}
 };
 
-// Process events
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("uncaughtException", (err) => {
