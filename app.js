@@ -5,19 +5,18 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const { connectToDatabase, closeConnection } = require("./config/db");
 
-// Debugging setup
 console.log("\n=== Starting Server Initialization ===");
 console.log("Environment:", {
 	NODE_ENV: process.env.NODE_ENV || "development",
-	PORT: process.env.PORT || "5000 (default)",
+	PORT: process.env.PORT,
 	MONGODB_URI: process.env.MONGODB_URI ? "*****" : "MISSING - REQUIRED",
 });
 
 const app = express();
-let server; // Declare server variable at the top level
+let server;
 let isShuttingDown = false;
 
-// Enhanced middleware setup
+// Middleware
 app.use(
 	cors({
 		origin:
@@ -29,7 +28,6 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Security headers for production
 if (process.env.NODE_ENV === "production") {
 	app.use(
 		helmet({
@@ -42,7 +40,7 @@ if (process.env.NODE_ENV === "production") {
 				},
 			},
 			hsts: {
-				maxAge: 63072000, // 2 years in seconds
+				maxAge: 63072000,
 				includeSubDomains: true,
 				preload: true,
 			},
@@ -65,7 +63,7 @@ app.use("/api/high-priority-projects", highPriorityProjectsRouter);
 app.use("/api/war-room", warRoomRouter);
 console.log("Routes initialized");
 
-// Enhanced Railway-compatible health check
+// Health check route
 app.get("/health", async (req, res) => {
 	if (isShuttingDown) {
 		return res.status(503).json({
@@ -76,7 +74,6 @@ app.get("/health", async (req, res) => {
 	}
 
 	try {
-		// Verify database connection
 		const db = await connectToDatabase();
 		await db.command({ ping: 1 });
 
@@ -97,7 +94,7 @@ app.get("/health", async (req, res) => {
 	}
 });
 
-// 404 Handler
+// 404 handler
 app.use((req, res) => {
 	res.status(404).json({
 		error: "Not Found",
@@ -107,7 +104,7 @@ app.use((req, res) => {
 	});
 });
 
-// Error handling middleware
+// Error handler
 app.use((err, req, res, next) => {
 	console.error("Error:", {
 		message: err.message,
@@ -115,7 +112,6 @@ app.use((err, req, res, next) => {
 		path: req.path,
 		method: req.method,
 	});
-
 	res.status(500).json({
 		error: "Internal Server Error",
 		message: process.env.NODE_ENV === "development" ? err.message : undefined,
@@ -123,7 +119,7 @@ app.use((err, req, res, next) => {
 	});
 });
 
-// Enhanced graceful shutdown handler
+// Graceful shutdown handler
 const gracefulShutdown = async (signal) => {
 	if (isShuttingDown) return;
 	isShuttingDown = true;
@@ -132,26 +128,20 @@ const gracefulShutdown = async (signal) => {
 	console.log(`Current uptime: ${process.uptime()} seconds`);
 
 	try {
-		// Close database connection if available
 		if (typeof closeConnection === "function") {
 			console.log("Closing database connection...");
 			await closeConnection();
 			console.log("Database connection closed successfully");
 		}
 
-		// Close HTTP server if available
 		if (server) {
 			console.log("Closing HTTP server...");
 			server.close(() => {
 				console.log("HTTP server closed successfully");
 				process.exit(0);
 			});
-
-			// Force shutdown after timeout
 			setTimeout(() => {
-				console.error(
-					"Could not close gracefully within 10 seconds, forcing shutdown"
-				);
+				console.error("Forced shutdown after timeout");
 				process.exit(1);
 			}, 10000);
 		} else {
@@ -164,9 +154,9 @@ const gracefulShutdown = async (signal) => {
 	}
 };
 
-// Process event handlers
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM")); // Railway's stop signal
-process.on("SIGINT", () => gracefulShutdown("SIGINT")); // Ctrl-C
+// Process events
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("uncaughtException", (err) => {
 	console.error("Uncaught Exception:", err);
 	gracefulShutdown("uncaughtException");
@@ -176,7 +166,7 @@ process.on("unhandledRejection", (reason, promise) => {
 	gracefulShutdown("unhandledRejection");
 });
 
-// Server initialization
+// Start server
 const startServer = async () => {
 	try {
 		console.log("\nConnecting to MongoDB...");
@@ -184,27 +174,28 @@ const startServer = async () => {
 		await db.command({ ping: 1 });
 		console.log("✓ MongoDB connected successfully");
 
-		const PORT = process.env.PORT || 5000;
+		const PORT = process.env.PORT;
+
+		if (!PORT) {
+			console.error("❌ PORT environment variable is not defined");
+			process.exit(1);
+		}
+
 		server = app.listen(PORT, () => {
 			console.log(`\n✓ Server running on port ${PORT}`);
 			console.log(`✓ Environment: ${process.env.NODE_ENV || "development"}`);
 			console.log("✓ Ready to accept connections");
 			console.log(`→ Health check: http://localhost:${PORT}/health`);
-
-			// Railway-specific keep-alive logging
-			if (process.env.NODE_ENV === "production") {
-				setInterval(() => {
-					console.log(
-						"[Keep-alive] Server heartbeat",
-						new Date().toISOString()
-					);
-				}, 30000); // Every 30 seconds
-			}
 		});
 
-		// Railway-specific server timeouts
-		server.keepAliveTimeout = 60000; // 60 seconds
-		server.headersTimeout = 65000; // 65 seconds
+		server.keepAliveTimeout = 60000;
+		server.headersTimeout = 65000;
+
+		if (process.env.NODE_ENV === "production") {
+			setInterval(() => {
+				console.log("[Keep-alive] Server heartbeat", new Date().toISOString());
+			}, 30000);
+		}
 	} catch (err) {
 		console.error("\n!!! Failed to start server !!!");
 		console.error(err);
@@ -212,7 +203,6 @@ const startServer = async () => {
 	}
 };
 
-// Start the server
 startServer();
 
 module.exports = app;
