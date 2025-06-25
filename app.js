@@ -5,30 +5,20 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const { connectToDatabase, closeConnection } = require("./config/db");
 
-// Initialize Express app
 const app = express();
 
-// Middleware
+// Enhanced middleware setup
 app.use(cors());
-app.use(helmet());
-app.use(morgan("dev"));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Test database connection endpoint
-app.get("/test-db", async (req, res) => {
-	try {
-		const db = await connectToDatabase();
-		await db.command({ ping: 1 });
-		res.json({ success: true, message: "MongoDB connection successful" });
-	} catch (err) {
-		console.error("Database connection test failed:", err);
-		res.status(500).json({
-			success: false,
-			error: "Database connection failed",
-			details: process.env.NODE_ENV === "development" ? err.message : undefined,
-		});
-	}
-});
+// Environment-specific middleware
+if (process.env.NODE_ENV === "production") {
+	app.use(helmet());
+	app.use(morgan("combined"));
+} else {
+	app.use(morgan("dev"));
+}
 
 // Routes
 const priorityTasksRouter = require("./routes/priorityTasks");
@@ -39,58 +29,29 @@ app.use("/api/priority-tasks", priorityTasksRouter);
 app.use("/api/high-priority-projects", highPriorityProjectsRouter);
 app.use("/api/war-room", warRoomRouter);
 
-// Health check endpoint
+// Health check endpoint (required for Railway)
 app.get("/health", (req, res) => {
 	res.status(200).json({
 		status: "healthy",
 		timestamp: new Date().toISOString(),
+		environment: process.env.NODE_ENV,
 	});
 });
 
-// 404 Handler
-app.use((req, res) => {
-	res.status(404).json({ error: "Not Found" });
-});
-
-// Error Handler
+// Error handling
 app.use((err, req, res, next) => {
-	console.error("Unhandled error:", err.stack);
+	console.error(err.stack);
 	res.status(500).json({
 		error: "Internal Server Error",
-		...(process.env.NODE_ENV === "development" && { details: err.message }),
+		message: process.env.NODE_ENV === "development" ? err.message : undefined,
 	});
 });
 
-// Graceful shutdown handler
-const shutdown = async (server) => {
-	console.log("Starting graceful shutdown...");
-
-	try {
-		await closeConnection();
-		console.log("Database connection closed");
-
-		server.close(() => {
-			console.log("HTTP server closed");
-			process.exit(0);
-		});
-
-		// Force close if shutdown takes too long
-		setTimeout(() => {
-			console.error("Forcing shutdown after timeout");
-			process.exit(1);
-		}, 5000);
-	} catch (err) {
-		console.error("Error during shutdown:", err);
-		process.exit(1);
-	}
-};
-
-// Server initialization
+// Server startup
 const startServer = async () => {
 	try {
-		// Test database connection immediately
 		await connectToDatabase();
-		console.log("Database connection established");
+		console.log("Successfully connected to MongoDB!");
 
 		const PORT = process.env.PORT || 5000;
 		const server = app.listen(PORT, () => {
@@ -98,27 +59,24 @@ const startServer = async () => {
 			console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
 		});
 
-		// Handle shutdown signals
-		process.on("SIGINT", () => shutdown(server));
-		process.on("SIGTERM", () => shutdown(server));
+		// Graceful shutdown
+		const shutdown = async () => {
+			console.log("Shutting down gracefully...");
+			await closeConnection();
+			server.close(() => {
+				console.log("Server closed");
+				process.exit(0);
+			});
+		};
 
-		// Handle uncaught exceptions and rejections
-		process.on("uncaughtException", (err) => {
-			console.error("Uncaught Exception:", err);
-			shutdown(server);
-		});
-
-		process.on("unhandledRejection", (reason, promise) => {
-			console.error("Unhandled Rejection at:", promise, "reason:", reason);
-			shutdown(server);
-		});
+		process.on("SIGTERM", shutdown);
+		process.on("SIGINT", shutdown);
 	} catch (err) {
 		console.error("Failed to start server:", err);
 		process.exit(1);
 	}
 };
 
-// Start the server
 startServer();
 
 module.exports = app;
