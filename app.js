@@ -63,8 +63,8 @@ app.use("/api/high-priority-projects", highPriorityProjectsRouter);
 app.use("/api/war-room", warRoomRouter);
 console.log("Routes initialized");
 
-// Health check route
-app.get("/health", async (req, res) => {
+// Fast health check route (Railway-friendly)
+app.get("/health", (req, res) => {
 	if (isShuttingDown) {
 		return res.status(503).json({
 			status: "shutting_down",
@@ -73,25 +73,11 @@ app.get("/health", async (req, res) => {
 		});
 	}
 
-	try {
-		const db = await connectToDatabase();
-		await db.command({ ping: 1 });
-
-		res.status(200).json({
-			status: "healthy",
-			timestamp: new Date().toISOString(),
-			uptime: process.uptime(),
-			database: "connected",
-			environment: process.env.NODE_ENV || "development",
-		});
-	} catch (err) {
-		console.error("Health check failed:", err);
-		res.status(503).json({
-			status: "unhealthy",
-			error: "Database connection failed",
-			timestamp: new Date().toISOString(),
-		});
-	}
+	res.status(200).json({
+		status: "healthy",
+		timestamp: new Date().toISOString(),
+		uptime: process.uptime(),
+	});
 });
 
 // 404 handler
