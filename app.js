@@ -16,10 +16,7 @@ const app = express();
 let server;
 let isShuttingDown = false;
 
-const allowedOrigins = [
-	"https://cio-dashboard-production-b590.up.railway.app",
-	"https://cio-dashboard-backend-production.up.railway.app",
-];
+const allowedOrigins = ["https://cio-dashboard-production-b590.up.railway.app"];
 
 if (process.env.NODE_ENV === "development") {
 	allowedOrigins.push("http://localhost:3000");
